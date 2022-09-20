@@ -1,8 +1,16 @@
+import 'dart:io';
+import 'dart:ui';
+
+import 'package:audioplayers/audioplayers.dart';
+import 'package:external_path/external_path.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:loading_overlay/loading_overlay.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../db/db_helper.dart';
 import 'gov_service.dart';
+import 'dart:io' as io;
 
 Route goGovService() {
   return PageRouteBuilder(
@@ -33,18 +41,48 @@ class LogDetail extends StatefulWidget {
 
 class _LogDetail extends State<LogDetail> {
   bool _nowSearch = false;
+  GlobalKey rpbKey = GlobalKey();
+  late var _extDir;
+  String _documentDir = "";
+  bool canCapture = false;
+  bool hasGraphImage = false;
+  bool _onPlay = false;
+  AudioPlayer player = AudioPlayer();
+
   @override
   void initState() {
     super.initState();
   }
+
   @override
   void dispose() {
     super.dispose();
   }
 
   Future<LogItem?> _getLogItem() async {
+    _extDir = await getApplicationDocumentsDirectory();
+    _documentDir = await ExternalPath.getExternalStoragePublicDirectory(ExternalPath.DIRECTORY_DOCUMENTS);
+    final String filename = _extDir.path + "/noise_out_" + widget.id.toString() +
+        ".png";
+    bool hasFile = await File(filename).exists();
+    setState(() {
+      canCapture = true;
+      hasGraphImage = hasFile;
+    });
     LogItem? item = await widget.dbHelper.getLogItem(widget.id);
     return item;
+  }
+
+  String getImageUri(int id) {
+    final String filename = _extDir.path + "/noise_out_" + id.toString() +
+        ".png";
+    return filename;
+  }
+
+  Widget getImage() {
+    return hasGraphImage ? Image.file(
+      File(getImageUri(widget.id)),
+    ) : SizedBox();
   }
 
   Widget _infoPanel() {
@@ -57,17 +95,34 @@ class _LogDetail extends State<LogDetail> {
                 "${trg.hour}:${trg.minute}:${trg.second}";
             String decStr = (trg.use_average ? "평균 " : "최소값 ") + "${trg.noise.toStringAsFixed(2)} 데시벨" ;
             return Container(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text("측정주소 : " + snapshot.data!.jibun),
-                  Text("측정일시 : " + dtStr),
-                  Text("측정값 : " + decStr),
-                  Text("좌표 : " + trg.lng.toString() + "," + trg.lng.toString()),
-                  Text("이동거리 : " + trg.walks.toString() + " 보"),
-                  Text("측정기간 : " + trg.duration.toString() + " 초"),
-                ],
-              )
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      image: DecorationImage(
+                        colorFilter: new ColorFilter.mode(Colors.white.withOpacity(0.1), BlendMode.dstATop),
+                        image: AssetImage("assets/favicon.png"),
+                      ),
+                      border: Border.all(
+                        width: 1,
+                        color: Colors.black26,
+                      ),
+                    ),
+                    child:
+                      Padding(
+                        padding: const EdgeInsets.all(10),
+                        child:
+                        Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text("측정주소 : " + snapshot.data!.jibun),
+                            Text("측정일시 : " + dtStr),
+                            Text("측정값 : " + decStr),
+                            Text("좌표 : " + trg.lat.toString() + "," + trg.lng.toString()),
+                            Text("이동거리 : " + trg.walks.toString() + " 보"),
+                            Text("측정기간 : " + trg.duration.toString() + " 초"),
+                            getImage(),
+                          ],
+                    )
+                  )
             );
           } else {
             return CircularProgressIndicator();
@@ -75,12 +130,77 @@ class _LogDetail extends State<LogDetail> {
         });
   }
 
+  Widget _saveBtnsPanel() {
+    return ElevatedButton(
+      child: Text("기록 인증서 저장", style: TextStyle(
+        color: canCapture ? Colors.white : Colors.black12,
+      )),
+      style: ButtonStyle(
+          backgroundColor: MaterialStateProperty.resolveWith((state) {
+            return state.contains(MaterialState.pressed) ? Colors.deepOrangeAccent : Colors.red;
+          })
+      ),
+      onPressed: () async {
+        if (canCapture) {
+          final boundary = rpbKey.currentContext
+              ?.findRenderObject() as RenderRepaintBoundary?;
+          final image = await boundary?.toImage();
+          final byteData = await image?.toByteData(format: ImageByteFormat.png);
+          final imageBytes = byteData?.buffer.asUint8List();
+          if (imageBytes != null) {
+            final String filename = _documentDir + "/noise_out_result" +
+                widget.id.toString() +
+                ".png";
+            await File(filename).writeAsBytes(imageBytes);
+          }
+        }
+      },
+    );
+  }
+
+  Widget _playBtnPanel() {
+    return Padding(
+        padding: const EdgeInsets.all(4.0),
+        child:
+        ElevatedButton.icon(
+            onPressed: () async {
+              if (_onPlay) {
+                await player.pause();
+                setState(() {
+                  _onPlay = false;
+                });
+              } else {
+                final String extDir = await ExternalPath.getExternalStoragePublicDirectory(ExternalPath.DIRECTORY_DOCUMENTS);
+                final String destFile = extDir + "/noise_out_${widget.id}.wav";
+                await player.play(DeviceFileSource(destFile));
+                setState(() {
+                  _onPlay = true;
+                });
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              primary: Colors.white,
+              onPrimary: Colors.black,
+            ),
+            icon: Icon(
+              !_onPlay ? Icons.play_circle_outline : Icons.pause_circle_outline,
+              size: 16,
+            ),
+            label: Text("녹음파일", style: TextStyle(color: Colors.black)))
+    );
+  }
+
   Widget _btnsPanel() {
-    return TextButton(
+    return ElevatedButton(
       child: Text("민원접수"),
       onPressed: () {
         Navigator.push(context, goGovService());
       },
+      style: ButtonStyle(
+          backgroundColor: MaterialStateProperty.resolveWith((state) {
+            return state.contains(MaterialState.pressed) ? Colors.deepOrangeAccent : Colors.red;
+          })
+      ),
     );
   }
   @override
@@ -113,7 +233,12 @@ class _LogDetail extends State<LogDetail> {
             // horizontal).
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _infoPanel(),
+              RepaintBoundary(
+                key: rpbKey,
+                child: _infoPanel(),
+              ),
+              //_playBtnPanel(),
+              _saveBtnsPanel(),
               _btnsPanel(),
             ],
           ),

@@ -45,5 +45,9 @@
 	<false/>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app needs GPS</string>
+	<key>NSMicrophoneUsageDescription</key>
+    <string>We need to access to the microphone to record audio file</string>
 </dict>
 </plist>

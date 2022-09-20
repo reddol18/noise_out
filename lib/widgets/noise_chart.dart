@@ -1,11 +1,16 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:io' as io;
 
 /// Package imports
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 
 /// Chart import
 import 'package:syncfusion_flutter_charts/charts.dart';
+import 'dart:ui' as ui;
 
 import '../noise_log.dart';
 
@@ -22,12 +27,13 @@ class NoiseChart extends StatefulWidget {
   const NoiseChart({Key? key,
     required this.maxValue, required this.values, required this.xInterval}): super(key: key);
   @override
-  _NoiseChart createState() => _NoiseChart();
+  NoiseChartState createState() => NoiseChartState();
 }
 
-class _NoiseChart extends State<NoiseChart> {
-  _NoiseChart();
+class NoiseChartState extends State<NoiseChart> {
+  NoiseChartState();
   ChartSeriesController? _chartSeriesController;
+  late GlobalKey<SfCartesianChartState> _cartesianChartKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
@@ -41,6 +47,7 @@ class _NoiseChart extends State<NoiseChart> {
 
   SfCartesianChart _chartBody() {
     return SfCartesianChart(
+      key: _cartesianChartKey,
       plotAreaBorderWidth: 0,
       primaryXAxis: NumericAxis(
         interval: widget.xInterval,
@@ -71,6 +78,18 @@ class _NoiseChart extends State<NoiseChart> {
         width: 2
       )
     ];
+  }
+
+  Future<void> saveAsImage(int id) async {
+    final ui.Image data = await _cartesianChartKey.currentState!.toImage(pixelRatio: 1.0);
+    final ByteData? bytes = await data.toByteData(format : ui.ImageByteFormat.png);
+    final Uint8List imageBytes = bytes!.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes);
+    if (imageBytes != null) {
+      final io.Directory extDir = await getApplicationDocumentsDirectory();
+      final String filename = extDir.path + "/noise_out_" + id.toString() +
+          ".png";
+      await File(filename).writeAsBytes(imageBytes);
+    }
   }
 
   @override

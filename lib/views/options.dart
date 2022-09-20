@@ -309,7 +309,7 @@ class _OptionPage extends State<OptionPage> {
           child: new TextField(
             controller: tc1,
             onChanged: (value) async {
-              int intVal = int.parse(value);
+              int intVal = int.tryParse(value) ?? 0;
               await prefs.setInt("level1", intVal);
               setState(() {
                 _level1 = intVal;
@@ -327,7 +327,7 @@ class _OptionPage extends State<OptionPage> {
           child: new TextField(
             controller: tc2,
             onChanged: (value) async {
-              int intVal = int.parse(value);
+              int intVal = int.tryParse(value) ?? 0;
               await prefs.setInt("level2", intVal);
               setState(() {
                 _level2 = intVal;
@@ -345,7 +345,7 @@ class _OptionPage extends State<OptionPage> {
           child: new TextField(
             controller: tc3,
             onChanged: (value) async {
-              int intVal = int.parse(value);
+              int intVal = int.tryParse(value) ?? 0;
               await prefs.setInt("level3", intVal);
               setState(() {
                 _level3 = intVal;
@@ -372,7 +372,7 @@ class _OptionPage extends State<OptionPage> {
           child: new TextField(
             controller: tc4,
             onChanged: (value) async {
-              int intVal = int.parse(value);
+              int intVal = int.tryParse(value) ?? 0;
               await prefs.setInt("wait_second", intVal);
               setState(() {
                 _wait_second = intVal;
@@ -390,7 +390,7 @@ class _OptionPage extends State<OptionPage> {
           child: new TextField(
             controller: tc5,
             onChanged: (value) async {
-              int intVal = int.parse(value);
+              int intVal = int.tryParse(value) ?? 0;
               await prefs.setInt("max_walks", intVal);
               setState(() {
                 _max_walks = intVal;

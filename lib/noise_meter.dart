@@ -9,11 +9,13 @@ import 'package:flutter/services.dart';
 /// Holds a decibel value for a noise level reading.
 class NoiseReading {
   late double _meanDecibel, _maxDecibel;
+  late List<double> chunks;
   double abs(double n) {
     return sqrt(n * n);
   }
 
   NoiseReading(List<double> volumes) {
+    chunks = volumes;
     // sorted volumes such that the last element is max amplitude
     // compute average peak-amplitude using the min and max amplitude
     double hold = 0.9999;

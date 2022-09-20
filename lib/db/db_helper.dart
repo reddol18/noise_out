@@ -52,7 +52,7 @@ class DbHelper {
       onConfigure: (Database db) => {},
       onCreate: _onCreate,
       onUpgrade: (Database db, int oldVersion, int newVersion) async {
-        print("Version Check ${oldVersion}, ${newVersion}");
+        //print("Version Check ${oldVersion}, ${newVersion}");
         if (newVersion == 2) {
           /*await db.execute('''
             CREATE TABLE IF NOT EXISTS app_info (
@@ -178,7 +178,7 @@ class DbHelper {
   }
 
   // 새로운 데이터를 추가한다.
-  Future add(LogItem item) async {
+  Future<LogItem> add(LogItem item) async {
     item.id = await db.insert(
       'noise_log', // table name
       {

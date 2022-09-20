@@ -1,17 +1,29 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:advanced_navigator/advanced_navigator.dart';
+import 'package:external_path/external_path.dart';
 import 'package:fl_toast/fl_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:loading_overlay/loading_overlay.dart';
+import 'package:location/location.dart';
 import 'package:noise_out/views/gov_service.dart';
 import 'package:noise_out/views/log_list.dart';
 import 'package:noise_out/views/options.dart';
 import 'package:noise_out/widgets/noise_chart.dart';
-
+import 'dart:io' as io;
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart' as perm_handle;
+import 'package:wakelock/wakelock.dart';
+import 'package:wav/wav.dart';
 import 'db/db_helper.dart';
 import 'noise_log.dart';
 import 'noise_meter.dart';
+import 'dart:math' as _math;
+import 'dart:math';
+import 'package:convert/convert.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,57 +31,6 @@ void main() async {
     [DeviceOrientation.portraitUp],
   ); // To turn off landscape mode
   runApp(const MyApp());
-}
-
-Route goOptionPage() {
-  return PageRouteBuilder(
-      pageBuilder: (context, animation, secondaryAnimation) => OptionPage(),
-      transitionsBuilder: (context, animation, secondaryAnimation, child) {
-        var begin = Offset(0.0, 1.0);
-        var end = Offset.zero;
-        var curve = Curves.ease;
-
-        var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
-
-        return SlideTransition(
-          position: animation.drive(tween),
-          child: child,
-        );
-    });
-}
-
-Route goGovService() {
-  return PageRouteBuilder(
-      pageBuilder: (context, animation, secondaryAnimation) => GovService(),
-      transitionsBuilder: (context, animation, secondaryAnimation, child) {
-        var begin = Offset(0.0, 1.0);
-        var end = Offset.zero;
-        var curve = Curves.ease;
-
-        var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
-
-        return SlideTransition(
-          position: animation.drive(tween),
-          child: child,
-        );
-      });
-}
-
-Route goLogList(DbHelper dbHelper) {
-  return PageRouteBuilder(
-      pageBuilder: (context, animation, secondaryAnimation) => LogList(dbHelper),
-      transitionsBuilder: (context, animation, secondaryAnimation, child) {
-        var begin = Offset(0.0, 1.0);
-        var end = Offset.zero;
-        var curve = Curves.ease;
-
-        var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
-
-        return SlideTransition(
-          position: animation.drive(tween),
-          child: child,
-        );
-      });
 }
 
 class MyApp extends StatelessWidget {
@@ -90,7 +51,8 @@ class MyApp extends StatelessWidget {
         // or simply save your changes to "hot reload" in a Flutter IDE).
         // Notice that the counter didn't reset back to zero; the application
         // is not restarted.
-        primarySwatch: Colors.blue,
+        primarySwatch: Colors.red,
+        scaffoldBackgroundColor: Colors.white,
       ),
       home: const MyHomePage(title: '건축소음 측정기'),
     );
@@ -132,12 +94,39 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _nowProgress = false;
   final DbHelper dbHelper = DbHelper();
   late BuildContext _gctx;
+  Location location = new Location();
+  bool _locEnabled = false;
+  late PermissionStatus _perm;
+  late LocationData _locData;
+  GlobalKey<NoiseChartState> noiseChartCtrl = GlobalKey();
+  late File tempWavFile;
+
   @override
   void initState() {
     super.initState();
+    Wakelock.enable();
+    startLocation();
     startDb();
     chartData = [];
     _noiseMeter = new NoiseMeter(onError);
+  }
+
+  Future<void> startLocation() async {
+    await perm_handle.Permission.manageExternalStorage.request();
+    _locEnabled = await location.serviceEnabled();
+    if (!_locEnabled) {
+      _locEnabled = await location.requestService();
+      if (!_locEnabled) {
+        return;
+      }
+    }
+    _perm = await location.hasPermission();
+    if (_perm == PermissionStatus.denied) {
+      _perm = await location.requestPermission();
+      if (_perm != PermissionStatus.granted) {
+        return;
+      }
+    }
   }
 
   Future<void> startDb() async {
@@ -149,6 +138,7 @@ class _MyHomePageState extends State<MyHomePage> {
     dbHelper.close();
     _noiseSubscription?.cancel();
     _timer?.cancel();
+    Wakelock.disable();
     super.dispose();
   }
 
@@ -166,7 +156,20 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void startRecord() async {
+    setState(() {
+      _nowProgress = true;
+    });
     try {
+      if (_locEnabled && _perm == PermissionStatus.granted) {
+        _locData = await location.getLocation();
+      }
+      setState(() {
+        chartData = [];
+      });
+      /*final io.Directory extDir = await getApplicationDocumentsDirectory();
+      final String destFile = extDir.path + "/temp.raw";
+      tempWavFile = File(destFile);*/
+
       noiseLogs.startLog();
       _noiseSubscription = _noiseMeter.noiseStream.listen(onData);
     } catch (exception) {
@@ -177,6 +180,17 @@ class _MyHomePageState extends State<MyHomePage> {
         addChartData();
       }
     });
+    setState(() {
+      _nowProgress = false;
+    });
+  }
+
+  String _put(int n, int l) {
+    final _n = n.toRadixString(16);
+    final __n = List<String>.filled(l * 2 - _n.length, "0").join() + _n;
+    return String.fromCharCodes(hex.decode(__n)
+        .reversed
+        .toList());
   }
 
   // TODO 시작 시간과 순간 소음값을 가지는 클래스 정의
@@ -192,6 +206,9 @@ class _MyHomePageState extends State<MyHomePage> {
   // TODO 소음 기준 초과시 자치구로 신고 : 자동화 할 수 있으면 방법을 뚫어보고 안되면 안내팝업
 
   void onData(NoiseReading noiseReading) {
+    /*Float32List temp1 = Float32List.fromList(noiseReading.chunks);
+    Uint8List temp2 = temp1.buffer.asUint8List();
+    tempWavFile.writeAsBytes(temp2, mode: io.FileMode.writeOnlyAppend);*/
     this.setState(() {
       if (!_isRecording) {
         _isRecording = true;
@@ -219,20 +236,45 @@ class _MyHomePageState extends State<MyHomePage> {
             use_average: noiseLogs.use_average,
             jibun: noiseLogs.jibun,
             is_lowlevel: noiseLogs.is_lowlevel,
-            lat: 0.0,
-            lng: 0.0,
+            lat: _locData!.latitude!.toDouble(),
+            lng: _locData!.longitude!.toDouble(),
             duration: secondLength,
           );
-          dbHelper.add(trg);
+          saveDataAndImageAndAudio(trg);
           stopRecorder();
+
           showTextToast(text: "소음기준치 초과! 기록을 저장했습니다.", context: _gctx);
 
         }
       }
     });
+  }
 
-    /// Do someting with the noiseReading object
-    print(noiseReading.toString());
+  Future<void> saveDataAndImageAndAudio(LogItem item) async {
+    LogItem ret = await dbHelper.add(item);
+    await noiseChartCtrl.currentState?.saveAsImage(ret.id);
+    /*final Directory? extDir1 = await getApplicationDocumentsDirectory();
+    final String extDir2 = await ExternalPath.getExternalStoragePublicDirectory(ExternalPath.DIRECTORY_DOCUMENTS);
+    final String srcFile = extDir1!.path + "/temp.raw";
+    final String destFile = extDir2 + "/noise_out_${item.id}.wav";
+    Uint8List tempFile = await File(srcFile).readAsBytes();
+    final _data = StringBuffer();
+    _data.write(
+        "RIFF" + _put(tempFile.lengthInBytes, 4) + "WAVEfmt " + _put(16, 4));
+    _data.write(_put(1, 2)); // wFormatTag (pcm)
+    _data.write(_put(2, 2)); // nChannels
+    _data.write(_put(44100, 4)); // nSamplesPerSec
+    _data.write(_put(
+        2 * 4 * 44100,
+        4)); // nAvgBytesPerSec
+    _data.write(
+        _put(2 * 4 * 2, 2)); // nBlockAlign
+    _data.write(_put(32, 2)); // wBitsPerSample
+    _data.write("data" + _put(tempFile.lengthInBytes, 4));
+    // TODO _data + tempFile 해서 dstFile에 저장
+    File newFile = File(destFile);
+    await newFile.writeAsString(_data.toString());
+    await newFile.writeAsBytes(tempFile, mode: io.FileMode.writeOnlyAppend);*/
   }
 
   void onError(Object error) {
@@ -251,25 +293,25 @@ class _MyHomePageState extends State<MyHomePage> {
                       _isRecording
                           ? _decValue.toStringAsFixed(2) + " db"
                           : "Mic: OFF",
-                      style: TextStyle(fontSize: 25, color: Colors.blue)),
+                      style: TextStyle(fontSize: 25, color: Colors.redAccent)),
                   margin: EdgeInsets.only(top: 20),
                 ),
                 Container(
                   height: 15,
                   child: Text(averageValue.toStringAsFixed(2) + " db",
-                      style: TextStyle(fontSize: 15, color: Colors.lightBlue)),
+                      style: TextStyle(fontSize: 15, color: Colors.deepOrangeAccent)),
                   margin: EdgeInsets.only(top: 20),
                 ),
                 Container(
                   height: 30,
                   child: Text(byAverage ? "평균초과" : "평균미달",
-                      style: TextStyle(fontSize: 18, color: Colors.lightBlue)),
+                      style: TextStyle(fontSize: 18, color: Colors.black)),
                   margin: EdgeInsets.only(top: 10),
                 ),
                 Container(
                   height: 20,
                   child: Text(byMin ? "최소초과" : "최소미달",
-                      style: TextStyle(fontSize: 15, color: Colors.blue)),
+                      style: TextStyle(fontSize: 15, color: Colors.black)),
                   margin: EdgeInsets.only(top: 20),
                 ),
                 Container(
@@ -287,6 +329,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 Container(
                   height: 300,
                   child: NoiseChart(
+                    key: noiseChartCtrl,
                     maxValue: maxValue,
                     values: chartData,
                     xInterval: chartData.length > 100 ? 30 : 5,
@@ -308,19 +351,33 @@ class _MyHomePageState extends State<MyHomePage> {
         Expanded(
           flex: 5,
           child: TextButton(
-            child: Text("기준 데시벨 확인"),
+            child: Text("기준 데시벨 확인",
+                style: TextStyle(color: Colors.redAccent)),
             onPressed: () {
-              Navigator.push(context, goOptionPage());
+              Navigator.push(context,
+                  MaterialPageRoute(builder: (context) => OptionPage()));
             },
+            style: ButtonStyle(
+              backgroundColor: MaterialStateProperty.resolveWith((state) {
+                return state.contains(MaterialState.pressed) ? Colors.black12 : Colors.white;
+              })
+            ),
           ),
         ),
         Expanded(
           flex: 3,
           child: TextButton(
-            child: Text("민원접수"),
+            child: Text("민원접수",
+                style: TextStyle(color: Colors.redAccent)),
             onPressed: () {
-              Navigator.push(context, goGovService());
+              Navigator.push(context,
+                  MaterialPageRoute(builder: (context) => GovService()));
             },
+            style: ButtonStyle(
+                backgroundColor: MaterialStateProperty.resolveWith((state) {
+                  return state.contains(MaterialState.pressed) ? Colors.black12 : Colors.white;
+                })
+            ),
           ),
         ),
         Expanded(
@@ -332,11 +389,18 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void stopRecorder() async {
+    setState(() {
+      _nowProgress = true;
+    });
     try {
       if (_noiseSubscription != null) {
         _noiseSubscription!.cancel();
         _noiseSubscription = null;
       }
+      /*
+      if (await record.isRecording() == true) {
+        await record.stop();
+      }*/
       noiseLogs.stopLog();
       this.setState(() {
         this._isRecording = false;
@@ -344,6 +408,9 @@ class _MyHomePageState extends State<MyHomePage> {
     } catch (err) {
       print('stopRecorder error: $err');
     }
+    setState(() {
+      _nowProgress = false;
+    });
   }
 
   @override
@@ -360,12 +427,14 @@ class _MyHomePageState extends State<MyHomePage> {
         // Here we take the value from the MyHomePage object that was created by
         // the App.build method, and use it to set our appbar title.
         title: Text(widget.title),
+        backgroundColor: Colors.redAccent,
         actions: <Widget>[
           new IconButton(
             icon: new Icon(Icons.book_outlined),
             tooltip: "신고상황 발생 기록",
             onPressed: () {
-              Navigator.push(context, goLogList(dbHelper));
+              Navigator.push(context,
+                  MaterialPageRoute(builder: (context) => LogList(dbHelper)));
             },
           ),
         ],
@@ -396,7 +465,7 @@ class _MyHomePageState extends State<MyHomePage> {
         isLoading: _nowProgress,
       ),
       floatingActionButton: FloatingActionButton(
-        backgroundColor: _isRecording ? Colors.red : Colors.green,
+        backgroundColor: _isRecording ? Colors.red : Colors.black,
         onPressed: _isRecording ? stopRecorder : startRecord,
         child: _isRecording ? Icon(Icons.stop) : Icon(Icons.mic),
       ), // This trailing comma makes auto-formatting nicer for build methods.
