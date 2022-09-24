@@ -2,20 +2,22 @@ library noise_meter;
 
 import 'dart:async';
 import 'dart:core';
+import 'dart:ffi';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:audio_streamer/audio_streamer.dart';
 import 'package:flutter/services.dart';
 
 /// Holds a decibel value for a noise level reading.
 class NoiseReading {
   late double _meanDecibel, _maxDecibel;
-  late List<double> chunks;
+  late List<int> chunks;
   double abs(double n) {
     return sqrt(n * n);
   }
 
   NoiseReading(List<double> volumes) {
-    chunks = volumes;
+    chunks = [];
     // sorted volumes such that the last element is max amplitude
     // compute average peak-amplitude using the min and max amplitude
     double hold = 0.9999;
@@ -31,6 +33,11 @@ class NoiseReading {
         sum += tmp * maxAmp;
         pc++;
       //}
+      int temp = (volumes[i]*32767).toInt();
+      int a1 = (temp / 256).toInt();
+      int a2 = temp % 256;
+      chunks.add(a1);
+      chunks.add(a2);
     }
     volumes.sort();
     double max = volumes.last;

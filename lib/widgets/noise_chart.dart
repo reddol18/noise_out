@@ -24,8 +24,9 @@ class NoiseChart extends StatefulWidget {
   final List<ChartData> values;
   final double maxValue;
   final double xInterval;
+  final int levelValue;
   const NoiseChart({Key? key,
-    required this.maxValue, required this.values, required this.xInterval}): super(key: key);
+    required this.maxValue, required this.values, required this.xInterval, required this.levelValue}): super(key: key);
   @override
   NoiseChartState createState() => NoiseChartState();
 }
@@ -60,6 +61,15 @@ class NoiseChartState extends State<NoiseChart> {
         interval: 5,
         axisLine: const AxisLine(width: 0),
         majorTickLines: const MajorTickLines(size: 0),
+        plotBands: [
+          PlotBand(
+            start: widget.levelValue,
+            end: widget.levelValue,
+            borderColor: Colors.red,
+            borderWidth: 2,
+            associatedAxisStart: 0,
+          )
+        ],
       ),
       series: _getSeries(),
     );
@@ -73,8 +83,8 @@ class NoiseChartState extends State<NoiseChart> {
         },
         animationDuration: 0,
         dataSource: widget.values!,
-        xValueMapper: (ChartData noises, _) => noises.count - 1 as num,
-        yValueMapper: (ChartData noises, _) => noises.value,
+        xValueMapper: (ChartData noises, _) => noises.count as num,
+        yValueMapper: (ChartData noises, _) => noises.value >= 0 && noises.value <= 200 ? noises.value : 0,
         width: 2
       )
     ];

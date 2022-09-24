@@ -5,6 +5,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:external_path/external_path.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 import 'package:loading_overlay/loading_overlay.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -43,7 +44,6 @@ class _LogDetail extends State<LogDetail> {
   bool _nowSearch = false;
   GlobalKey rpbKey = GlobalKey();
   late var _extDir;
-  String _documentDir = "";
   bool canCapture = false;
   bool hasGraphImage = false;
   bool _onPlay = false;
@@ -52,6 +52,11 @@ class _LogDetail extends State<LogDetail> {
   @override
   void initState() {
     super.initState();
+    player.onPlayerComplete.listen((event) {
+      setState(() {
+        _onPlay = false;
+      });
+    });
   }
 
   @override
@@ -61,7 +66,6 @@ class _LogDetail extends State<LogDetail> {
 
   Future<LogItem?> _getLogItem() async {
     _extDir = await getApplicationDocumentsDirectory();
-    _documentDir = await ExternalPath.getExternalStoragePublicDirectory(ExternalPath.DIRECTORY_DOCUMENTS);
     final String filename = _extDir.path + "/noise_out_" + widget.id.toString() +
         ".png";
     bool hasFile = await File(filename).exists();
@@ -91,7 +95,7 @@ class _LogDetail extends State<LogDetail> {
         builder: (context, snapshot) {
           if (snapshot.hasData) {
             LogItem trg = snapshot.data!;
-            String dtStr = "${trg.year}-${trg.month}-${trg.hour} " +
+            String dtStr = "${trg.year}-${trg.month}-${trg.day} " +
                 "${trg.hour}:${trg.minute}:${trg.second}";
             String decStr = (trg.use_average ? "평균 " : "최소값 ") + "${trg.noise.toStringAsFixed(2)} 데시벨" ;
             return Container(
@@ -148,10 +152,12 @@ class _LogDetail extends State<LogDetail> {
           final byteData = await image?.toByteData(format: ImageByteFormat.png);
           final imageBytes = byteData?.buffer.asUint8List();
           if (imageBytes != null) {
-            final String filename = _documentDir + "/noise_out_result" +
+            final String filename = _extDir.path + "/noise_out_result" +
                 widget.id.toString() +
                 ".png";
             await File(filename).writeAsBytes(imageBytes);
+            final params = SaveFileDialogParams(sourceFilePath: filename);
+            await FlutterFileDialog.saveFile(params: params);
           }
         }
       },
@@ -162,31 +168,64 @@ class _LogDetail extends State<LogDetail> {
     return Padding(
         padding: const EdgeInsets.all(4.0),
         child:
-        ElevatedButton.icon(
-            onPressed: () async {
-              if (_onPlay) {
-                await player.pause();
-                setState(() {
-                  _onPlay = false;
-                });
-              } else {
-                final String extDir = await ExternalPath.getExternalStoragePublicDirectory(ExternalPath.DIRECTORY_DOCUMENTS);
-                final String destFile = extDir + "/noise_out_${widget.id}.wav";
-                await player.play(DeviceFileSource(destFile));
-                setState(() {
-                  _onPlay = true;
-                });
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              primary: Colors.white,
-              onPrimary: Colors.black,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                Expanded(child: Padding(
+                  padding: EdgeInsets.all(10),
+                  child: ElevatedButton.icon(
+                      onPressed: () async {
+                        if (_onPlay) {
+                          await player.pause();
+                          setState(() {
+                            _onPlay = false;
+                          });
+                        } else {
+                          final String destFile = _extDir.path + "/noise_out_audio${widget.id}.mp3";
+                          await player.play(DeviceFileSource(destFile));
+                          setState(() {
+                            _onPlay = true;
+                          });
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        primary: Colors.white,
+                        onPrimary: Colors.black,
+                      ),
+                      icon: Icon(
+                        !_onPlay ? Icons.play_circle_outline : Icons.pause_circle_outline,
+                        size: 16,
+                      ),
+                      label: Text("녹음파일", style: TextStyle(color: Colors.black)))
+                ), flex: 5),
+                Expanded(flex: 5,
+                child: Padding(
+                  padding: EdgeInsets.all(10),
+                  child: ElevatedButton(
+                    child: Text("녹음파일 저장",
+                        style: TextStyle(
+                          color: canCapture ? Colors.white : Colors.black12,
+                        )),
+                    style: ButtonStyle(backgroundColor:
+                        MaterialStateProperty.resolveWith((state) {
+                      return state.contains(MaterialState.pressed)
+                          ? Colors.deepOrangeAccent
+                          : Colors.red;
+                    })),
+                    onPressed: () async {
+                      if (canCapture) {
+                        final String filename = _extDir.path +
+                            "/noise_out_audio" +
+                            widget.id.toString() +
+                            ".mp3";
+                        final params =
+                            SaveFileDialogParams(sourceFilePath: filename);
+                        await FlutterFileDialog.saveFile(params: params);
+                      }
+                    },
+                )),)
+              ],
             ),
-            icon: Icon(
-              !_onPlay ? Icons.play_circle_outline : Icons.pause_circle_outline,
-              size: 16,
-            ),
-            label: Text("녹음파일", style: TextStyle(color: Colors.black)))
     );
   }
 
@@ -237,7 +276,7 @@ class _LogDetail extends State<LogDetail> {
                 key: rpbKey,
                 child: _infoPanel(),
               ),
-              //_playBtnPanel(),
+              _playBtnPanel(),
               _saveBtnsPanel(),
               _btnsPanel(),
             ],

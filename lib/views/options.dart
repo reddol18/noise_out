@@ -19,7 +19,7 @@ class _OptionPage extends State<OptionPage> {
   JiBunItem? _selectedGwangYeok = null;
   JiBunItem? _selectedSigungu = null;
   JiBunItem? _selectedUpMyeonDong = null;
-  String _selectedRi = "";
+  String? _selectedRi = null;
   bool _isSan = false;
   String _addr1 = "";
   String _addr2 = "";
@@ -53,9 +53,20 @@ class _OptionPage extends State<OptionPage> {
 
   Future<void> _selectGwangYeok(JiBunItem? value) async {
     await prefs.setString("selected_gw", value!.text);
+    bool setRi = false;
     setState(() {
+      if (_selectedGwangYeok == null || _selectedGwangYeok!.text != value!.text) {
+        _selectedSigungu = null;
+        _selectedUpMyeonDong = null;
+        _hasRi = false;
+        _selectedRi = null;
+        setRi = true;
+      }
       _selectedGwangYeok = value!;
     });
+    if (setRi) {
+      await prefs.setString("selected_ri", "");
+    }
   }
 
   // 광역시도 선택사항 표출
@@ -85,9 +96,19 @@ class _OptionPage extends State<OptionPage> {
 
   Future<void> _selectSigungu(JiBunItem? value) async {
     await prefs.setString("selected_sgg", value!.text);
+    bool setRi = false;
     setState(() {
+      if (_selectedSigungu == null || _selectedSigungu!.text != value!.text) {
+        _selectedUpMyeonDong = null;
+        _hasRi = false;
+        _selectedRi = null;
+        setRi = true;
+      }
       _selectedSigungu = value!;
     });
+    if (setRi) {
+      await prefs.setString("selected_ri", "");
+    }
   }
 
   // 시군구 선택사항 표출
@@ -117,10 +138,20 @@ class _OptionPage extends State<OptionPage> {
 
   Future<void> _selectUpMyeonDong(JiBunItem? value) async {
     await prefs.setString("selected_umd", value!.text);
+    bool setRi = false;
     setState(() {
+      if (_selectedUpMyeonDong == null || _selectedUpMyeonDong!.text != value!.text) {
+        setRi = true;
+      }
       _selectedUpMyeonDong = value!;
-      _hasRi = value.childs.isNotEmpty;
+      if (setRi) {
+        _hasRi = value.childs.isNotEmpty;
+        _selectedRi = null;
+      }
     });
+    if (setRi) {
+      await prefs.setString("selected_ri", "");
+    }
   }
 
   // 읍면동 선택사항 표출
@@ -245,7 +276,7 @@ class _OptionPage extends State<OptionPage> {
         _selectedSigungu!.text +
         " " +
         _selectedUpMyeonDong!.text +
-        (_hasRi ? " " + _selectedRi : ""));
+        (_hasRi ? " " + _selectedRi! : ""));
     String pnu = pm.makePnu(front!, _isSan, _addr1, _addr2);
     landUse temp = landUse();
     bool isLowLevel = false;
@@ -431,7 +462,7 @@ class _OptionPage extends State<OptionPage> {
     return _selectedGwangYeok != null &&
         _selectedSigungu != null &&
         _selectedUpMyeonDong != null &&
-        (_hasRi ? _selectedRi.isNotEmpty : true) &&
+        (_hasRi ? _selectedRi != null && _selectedRi!.isNotEmpty : true) &&
         _addr1.isNotEmpty;
   }
 

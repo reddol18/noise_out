@@ -142,7 +142,7 @@ class landUseResult {
 class landUse {
   // 주거지역, 녹지지역, 관리지역 중
   // 취락지구, 주거개발진흥지구 및 관광 휴양개발진흥지구, 자연환경보전지역, 학교, 종합병원, 공공도서관
-  final String key = "SWREtbqXkGVKg0pX4289T8Nu8wRfYExVLL6IjU2Py73b3XcgFpVjmZKkoK+2WwVibJsya4rcznYmW7JUojHj8Q==";
+  final String key = "";
   final String url = "http://apis.data.go.kr/1611000/nsdi/LandUseService/attr/getLandUseAttr";
 
 

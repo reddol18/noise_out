@@ -7,6 +7,7 @@ import 'package:external_path/external_path.dart';
 import 'package:fl_toast/fl_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_ffmpeg/flutter_ffmpeg.dart';
 import 'package:loading_overlay/loading_overlay.dart';
 import 'package:location/location.dart';
 import 'package:noise_out/views/gov_service.dart';
@@ -100,6 +101,9 @@ class _MyHomePageState extends State<MyHomePage> {
   late LocationData _locData;
   GlobalKey<NoiseChartState> noiseChartCtrl = GlobalKey();
   late File tempWavFile;
+  static FlutterFFmpeg _flutterFFmpeg = new FlutterFFmpeg();
+  late DateTime second_on_start;
+  List<List<int>> chunkToSave = [];
 
   @override
   void initState() {
@@ -112,7 +116,6 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> startLocation() async {
-    await perm_handle.Permission.manageExternalStorage.request();
     _locEnabled = await location.serviceEnabled();
     if (!_locEnabled) {
       _locEnabled = await location.requestService();
@@ -149,9 +152,14 @@ class _MyHomePageState extends State<MyHomePage> {
       if (chartData.length > noiseLogs.secondsRange) {
         chartData.removeAt(0);
       }
-      chartData.add(ChartData(
-          chartData.length > noiseLogs.secondsRange ? noiseLogs.secondsRange : chartData.length + 1,
-          noiseLogs.latestValue));
+      try {
+        DateTime current = DateTime.now();
+        chartData.add(ChartData(
+            current.difference(second_on_start).inSeconds,
+            noiseLogs.latestValue));
+      } catch(e) {
+        print("chart data add error: " + e.toString());
+      }
     });
   }
 
@@ -163,14 +171,18 @@ class _MyHomePageState extends State<MyHomePage> {
       if (_locEnabled && _perm == PermissionStatus.granted) {
         _locData = await location.getLocation();
       }
+      chunkToSave = [];
       setState(() {
         chartData = [];
       });
-      /*final io.Directory extDir = await getApplicationDocumentsDirectory();
+      final io.Directory extDir = await getApplicationDocumentsDirectory();
       final String destFile = extDir.path + "/temp.raw";
-      tempWavFile = File(destFile);*/
+      tempWavFile = File(destFile);
+      await tempWavFile.delete();
+      await tempWavFile.create();
 
       noiseLogs.startLog();
+      second_on_start = DateTime.now();
       _noiseSubscription = _noiseMeter.noiseStream.listen(onData);
     } catch (exception) {
       print(exception);
@@ -193,6 +205,26 @@ class _MyHomePageState extends State<MyHomePage> {
         .toList());
   }
 
+  Future<void> cutAudioFile(int length) async {
+    try {
+      int lengthToRest = length * 44100 * 2;
+      int size = 0;
+      int cutIndex = -1;
+      for (int i=chunkToSave.length-1;i>=0;i--) {
+        size += chunkToSave[i].length;
+        if (size > lengthToRest) {
+          cutIndex = i;
+          break;
+        }
+      }
+      for (int k=0;k<=cutIndex;k++) {
+        chunkToSave.removeAt(0);
+      }
+    } catch(e) {
+      print("Cut Error: " + e.toString());
+    }
+  }
+
   // TODO 시작 시간과 순간 소음값을 가지는 클래스 정의
   // TODO 연속기록을 저장하는 클래스 정의, 평균기준, 최소값 기준 두 개를 유지해야 함
   // TODO 그래프로 보여줘야 함
@@ -206,9 +238,8 @@ class _MyHomePageState extends State<MyHomePage> {
   // TODO 소음 기준 초과시 자치구로 신고 : 자동화 할 수 있으면 방법을 뚫어보고 안되면 안내팝업
 
   void onData(NoiseReading noiseReading) {
-    /*Float32List temp1 = Float32List.fromList(noiseReading.chunks);
-    Uint8List temp2 = temp1.buffer.asUint8List();
-    tempWavFile.writeAsBytes(temp2, mode: io.FileMode.writeOnlyAppend);*/
+    List<int> temp1 = noiseReading.chunks;
+    chunkToSave.add(temp1);
     this.setState(() {
       if (!_isRecording) {
         _isRecording = true;
@@ -222,6 +253,7 @@ class _MyHomePageState extends State<MyHomePage> {
       secondLength = noiseLogs.secondLength;
       DateTime nowTime = DateTime.now();
       if (secondLength >= noiseLogs.secondsRange) {
+        cutAudioFile(secondLength);
         if ((noiseLogs.use_average && byAverage )|| (!noiseLogs.use_average && byMin)) {
           LogItem trg = LogItem(
             id: 0,
@@ -240,8 +272,8 @@ class _MyHomePageState extends State<MyHomePage> {
             lng: _locData!.longitude!.toDouble(),
             duration: secondLength,
           );
-          saveDataAndImageAndAudio(trg);
           stopRecorder();
+          saveDataAndImageAndAudio(trg);
 
           showTextToast(text: "소음기준치 초과! 기록을 저장했습니다.", context: _gctx);
 
@@ -250,31 +282,34 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
+  Future<void> saveAudio(String id) async {
+    try {
+      final io.Directory extDir = await getApplicationDocumentsDirectory();
+      final String srcFile = extDir.path + "/temp.raw";
+      File file1 = File(srcFile);
+      if (await file1.exists()) {
+        List<int> temp = [];
+        for(var chunk in chunkToSave) {
+          temp = temp + chunk;
+        }
+        await file1.writeAsBytes(temp, mode: FileMode.writeOnlyAppend);
+      }
+      final String destFile = extDir.path + "/noise_out_audio" + id + ".mp3";
+      File file2 = File(destFile);
+      if (await file2.exists()) {
+        file2.delete();
+      }
+      await _flutterFFmpeg.execute("-f s16be -ar 44100 -ac 1 -i ${srcFile} "
+          + "-ar 44100 -ac 2 -b:a 320k -c:a libmp3lame ${destFile}");
+    } catch(e) {
+      print(e.toString());
+    }
+  }
+
   Future<void> saveDataAndImageAndAudio(LogItem item) async {
     LogItem ret = await dbHelper.add(item);
     await noiseChartCtrl.currentState?.saveAsImage(ret.id);
-    /*final Directory? extDir1 = await getApplicationDocumentsDirectory();
-    final String extDir2 = await ExternalPath.getExternalStoragePublicDirectory(ExternalPath.DIRECTORY_DOCUMENTS);
-    final String srcFile = extDir1!.path + "/temp.raw";
-    final String destFile = extDir2 + "/noise_out_${item.id}.wav";
-    Uint8List tempFile = await File(srcFile).readAsBytes();
-    final _data = StringBuffer();
-    _data.write(
-        "RIFF" + _put(tempFile.lengthInBytes, 4) + "WAVEfmt " + _put(16, 4));
-    _data.write(_put(1, 2)); // wFormatTag (pcm)
-    _data.write(_put(2, 2)); // nChannels
-    _data.write(_put(44100, 4)); // nSamplesPerSec
-    _data.write(_put(
-        2 * 4 * 44100,
-        4)); // nAvgBytesPerSec
-    _data.write(
-        _put(2 * 4 * 2, 2)); // nBlockAlign
-    _data.write(_put(32, 2)); // wBitsPerSample
-    _data.write("data" + _put(tempFile.lengthInBytes, 4));
-    // TODO _data + tempFile 해서 dstFile에 저장
-    File newFile = File(destFile);
-    await newFile.writeAsString(_data.toString());
-    await newFile.writeAsBytes(tempFile, mode: io.FileMode.writeOnlyAppend);*/
+    await saveAudio(item.id.toString());
   }
 
   void onError(Object error) {
@@ -333,10 +368,11 @@ class _MyHomePageState extends State<MyHomePage> {
                     maxValue: maxValue,
                     values: chartData,
                     xInterval: chartData.length > 100 ? 30 : 5,
+                    levelValue: noiseLogs.upperValue,
                   ),
                   margin: EdgeInsets.only(top: 10),
                 ),
-                Container(
+                _isRecording ? SizedBox() : Container(
                   child: _bottomButtons(),
                   margin: EdgeInsets.only(top: 10),
                 ),
@@ -388,29 +424,24 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  void stopRecorder() async {
-    setState(() {
-      _nowProgress = true;
-    });
+  Future<void> stopRecorder() async {
     try {
+      setState(() {
+        _isRecording = false;
+        _nowProgress = true;
+      });
       if (_noiseSubscription != null) {
-        _noiseSubscription!.cancel();
+        await _noiseSubscription!.cancel();
         _noiseSubscription = null;
       }
-      /*
-      if (await record.isRecording() == true) {
-        await record.stop();
-      }*/
       noiseLogs.stopLog();
-      this.setState(() {
-        this._isRecording = false;
-      });
     } catch (err) {
       print('stopRecorder error: $err');
+    } finally {
+      setState(() {
+        _nowProgress = false;
+      });
     }
-    setState(() {
-      _nowProgress = false;
-    });
   }
 
   @override
@@ -428,7 +459,7 @@ class _MyHomePageState extends State<MyHomePage> {
         // the App.build method, and use it to set our appbar title.
         title: Text(widget.title),
         backgroundColor: Colors.redAccent,
-        actions: <Widget>[
+        actions: _isRecording ? [] : <Widget>[
           new IconButton(
             icon: new Icon(Icons.book_outlined),
             tooltip: "신고상황 발생 기록",
